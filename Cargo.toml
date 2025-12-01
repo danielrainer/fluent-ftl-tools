@@ -1,0 +1,42 @@
+[workspace]
+members = ["crates/*"]
+package = { edition = "2024" }
+
+[package]
+name = "fluent-ftl-tools"
+version = "0.1.0"
+edition.workspace = true
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "check-consistency"
+path = "src/bin/check_consistency.rs"
+
+[[bin]]
+name = "format"
+path = "src/bin/format.rs"
+
+[[bin]]
+name = "format-stdin"
+path = "src/bin/format_stdin.rs"
+
+[[bin]]
+name = "po-convert"
+path = "src/bin/po_convert.rs"
+
+[[bin]]
+name = "rename"
+path = "src/bin/rename.rs"
+
+[[bin]]
+name = "show-missing"
+path = "src/bin/show_missing.rs"
+
+[dependencies]
+fluent = { path = "../fluent-rs/fluent" }
+fluent-syntax = { path = "../fluent-rs/fluent-syntax" }
+nix = { version = "0.30", features = ["fs"] }
+gettext-po-file-parser = { path = "crates/gettext-po-file-parser" }
+unic-langid = "0.9.6"
