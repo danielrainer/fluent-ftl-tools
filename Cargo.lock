@@ -34,6 +34,7 @@ dependencies = [
 [[package]]
 name = "fluent"
 version = "0.17.0"
+source = "git+https://github.com/danielrainer/fluent-rs?rev=cf712bced280b217b6307edabc2089b3e57204ab#cf712bced280b217b6307edabc2089b3e57204ab"
 dependencies = [
  "fluent-bundle",
  "unic-langid",
@@ -42,6 +43,7 @@ dependencies = [
 [[package]]
 name = "fluent-bundle"
 version = "0.16.0"
+source = "git+https://github.com/danielrainer/fluent-rs?rev=cf712bced280b217b6307edabc2089b3e57204ab#cf712bced280b217b6307edabc2089b3e57204ab"
 dependencies = [
  "fluent-langneg",
  "fluent-syntax",
@@ -76,6 +78,7 @@ dependencies = [
 [[package]]
 name = "fluent-syntax"
 version = "0.12.0"
+source = "git+https://github.com/danielrainer/fluent-rs?rev=cf712bced280b217b6307edabc2089b3e57204ab#cf712bced280b217b6307edabc2089b3e57204ab"
 dependencies = [
  "memchr",
  "thiserror",
@@ -88,6 +91,7 @@ version = "0.0.0"
 [[package]]
 name = "intl-memoizer"
 version = "0.5.3"
+source = "git+https://github.com/danielrainer/fluent-rs?rev=cf712bced280b217b6307edabc2089b3e57204ab#cf712bced280b217b6307edabc2089b3e57204ab"
 dependencies = [
  "type-map",
  "unic-langid",

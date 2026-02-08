@@ -35,8 +35,8 @@ name = "show-missing"
 path = "src/bin/show_missing.rs"
 
 [dependencies]
-fluent = { path = "../fluent-rs/fluent" }
-fluent-syntax = { path = "../fluent-rs/fluent-syntax" }
+fluent = { git = "https://github.com/danielrainer/fluent-rs", rev = "cf712bced280b217b6307edabc2089b3e57204ab" }
+fluent-syntax = { git = "https://github.com/danielrainer/fluent-rs", rev = "cf712bced280b217b6307edabc2089b3e57204ab" }
 nix = { version = "0.30", features = ["fs"] }
 gettext-po-file-parser = { path = "crates/gettext-po-file-parser" }
 unic-langid = "0.9.6"
