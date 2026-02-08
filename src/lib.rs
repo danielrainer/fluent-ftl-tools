@@ -13,6 +13,11 @@ use fluent_syntax::{
 };
 use unic_langid::LanguageIdentifier;
 
+pub mod consistency;
+pub mod format;
+pub mod missing;
+pub mod rename;
+
 pub fn parse_str_as_syntax_resource(input: &str) -> Result<Resource<String>, String> {
     let parser = Parser::new(input.to_owned());
     parser
@@ -24,16 +29,25 @@ pub fn parse_as_syntax_resource<P: AsRef<Path>>(path: P) -> Result<Resource<Stri
     let file_content = std::fs::read_to_string(&path)
         .map_err(|e| format!("Failed to read from {:?}:\n{e}", path.as_ref()))?;
     let parser = Parser::new(file_content.clone());
-    parser
-        .parse()
-        .map_err(|(_, errors)| display_parse_errors(&errors, &file_content))
+    parser.parse().map_err(|(_, errors)| {
+        format!(
+            "Error parsing data obtained from {:?}:\n{}",
+            path.as_ref(),
+            display_parse_errors(&errors, &file_content)
+        )
+    })
 }
 
 pub fn parse_as_fluent_resource<P: AsRef<Path>>(path: P) -> Result<FluentResource, String> {
     let file_content = std::fs::read_to_string(&path)
         .map_err(|e| format!("Failed to read from {:?}:\n{e}", path.as_ref()))?;
-    FluentResource::try_new(file_content.clone())
-        .map_err(|(_, errors)| display_parse_errors(&errors, &file_content))
+    FluentResource::try_new(file_content.clone()).map_err(|(_, errors)| {
+        format!(
+            "Error parsing data obtained from {:?}:\n{}",
+            path.as_ref(),
+            display_parse_errors(&errors, &file_content)
+        )
+    })
 }
 
 pub fn make_bundle(resource: &FluentResource) -> Result<FluentBundle<&FluentResource>, String> {
@@ -78,7 +92,7 @@ fn display_parse_error(error: &ParserError, file_content: &str) -> String {
     result
 }
 
-fn display_parse_errors(errors: &[ParserError], file_content: &str) -> String {
+pub fn display_parse_errors(errors: &[ParserError], file_content: &str) -> String {
     let mut error_message = "Parser errors:\n".to_string();
     for error in errors {
         error_message.push_str(&display_parse_error(error, file_content));
