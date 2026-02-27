@@ -344,15 +344,21 @@ fn rust_source_suggestion<S: AsRef<str>, T: AsRef<str>>(
     message_id: S,
     variable_names: &[T],
 ) -> String {
-    let mut result = String::new();
-    result.push_str("localized_println!(\"");
+    let mut result = String::from("localize!(");
+    if !variable_names.is_empty() {
+        result.push_str("\n    ");
+    }
+    result.push('"');
     result.push_str(message_id.as_ref());
     result.push('"');
-    for var in variable_names {
-        result.push_str(", ");
-        result.push_str(var.as_ref());
-        result.push_str(" = todo!()");
+    if !variable_names.is_empty() {
+        result.push_str(",\n");
+        for var in variable_names {
+            result.push_str("    ");
+            result.push_str(var.as_ref());
+            result.push_str(" = todo!(),\n");
+        }
     }
-    result.push_str(");");
+    result.push(')');
     result
 }
