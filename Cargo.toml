@@ -1,11 +1,15 @@
 [workspace]
 members = ["crates/*"]
-package = { edition = "2024" }
+
+[workspace.package]
+edition = "2024"
+rust-version = "1.85"
 
 [package]
 name = "fluent-ftl-tools"
 version = "0.1.0"
 edition.workspace = true
+rust-version.workspace = true
 
 [lib]
 path = "src/lib.rs"
