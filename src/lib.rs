@@ -216,10 +216,12 @@ pub fn get_file_paths_with_extension_from_directory<P: AsRef<Path>>(
                 )
             })?
             .is_file()
-            && let Some(extension) = dir_entry.path().extension()
-            && extension == expected_extension
         {
-            files.push(dir_entry.path());
+            if let Some(extension) = dir_entry.path().extension() {
+                if extension == expected_extension {
+                    files.push(dir_entry.path());
+                }
+            }
         }
     }
     Ok(files)

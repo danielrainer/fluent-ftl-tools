@@ -50,23 +50,23 @@ fn rename_in_file<P: AsRef<Path>>(
         );
         return Ok(resource);
     }
-    if let Some(new_id) = new_id
-        && existing_ids.contains(new_id.as_str())
-    {
-        return Err(format!(
-            "file {:?}: ID '{new_id}' already exists.",
-            file.as_ref()
-        ));
+    if let Some(new_id) = new_id {
+        if existing_ids.contains(new_id.as_str()) {
+            return Err(format!(
+                "file {:?}: ID '{new_id}' already exists.",
+                file.as_ref()
+            ));
+        }
     }
 
     for entry in &mut resource.body {
-        if let fluent_syntax::ast::Entry::Message(message) = entry
-            && message.id.name == old_id
-        {
-            rename_message(message, new_id, variable_update)
-                .map_err(|e| format!("file {:?}: message '{old_id}': {e}", file.as_ref()))?;
-            // IDs must be unique, so we won't miss any by stopping here.
-            break;
+        if let fluent_syntax::ast::Entry::Message(message) = entry {
+            if message.id.name == old_id {
+                rename_message(message, new_id, variable_update)
+                    .map_err(|e| format!("file {:?}: message '{old_id}': {e}", file.as_ref()))?;
+                // IDs must be unique, so we won't miss any by stopping here.
+                break;
+            }
         }
     }
     Ok(resource)
@@ -129,13 +129,14 @@ fn rename_variable_in_pattern(pattern: &mut Pattern<String>, old_name: &str, new
                     if let InlineExpression::VariableReference {
                         id: Identifier { name },
                     } = selector
-                        && name == old_name
                     {
-                        *name = new_name.into();
-                        for variant in variants {
-                            // Recursion is needed because variants can refer to the variable used
-                            // as the selector.
-                            rename_variable_in_pattern(&mut variant.value, old_name, new_name);
+                        if name == old_name {
+                            *name = new_name.into();
+                            for variant in variants {
+                                // Recursion is needed because variants can refer to the variable used
+                                // as the selector.
+                                rename_variable_in_pattern(&mut variant.value, old_name, new_name);
+                            }
                         }
                     }
                 }
@@ -143,9 +144,10 @@ fn rename_variable_in_pattern(pattern: &mut Pattern<String>, old_name: &str, new
                     if let InlineExpression::VariableReference {
                         id: Identifier { name },
                     } = inline_expression
-                        && name == old_name
                     {
-                        *name = new_name.into();
+                        if name == old_name {
+                            *name = new_name.into();
+                        }
                     }
                 }
             }
