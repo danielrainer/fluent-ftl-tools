@@ -1,5 +1,7 @@
 # Fluent FTL tools
 
+Moved to [Codeberg](https://codeberg.org/danielrainer/fluent-ftl-tools).
+
 ## Tools
 
 Contains a few tools for working with Fluent FTL files:
