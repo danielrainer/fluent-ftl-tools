@@ -1,9 +1,8 @@
 use std::{collections::HashSet, path::Path};
 
 use fluent::FluentResource;
-use fluent_syntax::ast::Entry;
 
-use crate::{is_formatted, make_bundle, parse_as_fluent_resource};
+use crate::{HasEntries, is_formatted, make_bundle, parse_as_fluent_resource};
 
 fn check_internal_consistency(fluent_resource: &FluentResource) -> Result<(), String> {
     // Checks for duplicate definitions.
@@ -14,16 +13,6 @@ fn check_internal_consistency(fluent_resource: &FluentResource) -> Result<(), St
     // TODO: Check if referenced terms exist and their variables are set.
     // This requires recursive AST traversal.
     Ok(())
-}
-
-fn extract_messages(resource: &FluentResource) -> HashSet<&str> {
-    let mut messages = HashSet::new();
-    for entry in resource.entries() {
-        if let Entry::Message(message) = entry {
-            messages.insert(message.id.name);
-        }
-    }
-    messages
 }
 
 fn check_for_extra_ids(
@@ -52,12 +41,12 @@ pub fn check_all_resources<
 ) -> Result<(), String> {
     check_internal_consistency(default_resource.1)
         .map_err(|e| format!("Errors in {:?}:\n{e}", default_resource.0))?;
-    let messages_default = extract_messages(default_resource.1);
+    let message_ids_default = default_resource.1.message_ids();
     for (name, res) in other_resources {
         check_internal_consistency(res)
             .map_err(|e| format!("Errors in {:?}:\n{e}", name.as_ref()))?;
-        let messages_res = extract_messages(res);
-        check_for_extra_ids(&messages_default, &messages_res)
+        let message_ids_res = res.message_ids();
+        check_for_extra_ids(&message_ids_default, &message_ids_res)
             .map_err(|e| format!("Errors in {:?}:\n{e}", name.as_ref()))?;
         // TODO: Check if the variables used with each message match.
     }

@@ -1,13 +1,13 @@
 use std::{collections::HashSet, path::Path};
 
-use crate::{get_message_ids, parse_as_syntax_resource};
+use crate::{HasEntries, parse_as_syntax_resource};
 
 fn find_missing_message_ids<'a, P: AsRef<Path>>(
     expected_ids: &HashSet<&'a str>,
     path: P,
 ) -> Result<Vec<&'a str>, String> {
     let resource = parse_as_syntax_resource(&path)?;
-    let present_ids = get_message_ids(&resource);
+    let present_ids = resource.message_ids();
     let mut missing = vec![];
     for &id in expected_ids {
         if !present_ids.contains(id) {
@@ -24,7 +24,7 @@ pub fn find_missing_message_ids_in_files<P: AsRef<Path>, Q: AsRef<Path>>(
     to_check: &[Q],
 ) -> Result<Option<String>, String> {
     let expected_resource = parse_as_syntax_resource(&expected)?;
-    let expected_ids = get_message_ids(&expected_resource);
+    let expected_ids = expected_resource.message_ids();
     let mut missing_message = String::new();
     for path in to_check {
         let missing_ids = find_missing_message_ids(&expected_ids, path)?;

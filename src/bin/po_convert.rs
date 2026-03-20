@@ -5,7 +5,7 @@ use std::{
 };
 
 use fluent_ftl_tools::{
-    format_resource, get_file_paths_with_extension_from_directory, get_message_ids, parse_cli_args,
+    HasEntries, format_resource, get_file_paths_with_extension_from_directory, parse_cli_args,
     parse_directory, parse_fluent_identifiers, parse_single_file_arg, parse_str_as_syntax_resource,
     parse_usize, serialize_resource_to_file,
 };
@@ -291,7 +291,7 @@ fn build_updated_fluent_resources<P: AsRef<Path>>(
                 let mut resource = parse_str_as_syntax_resource(&content).map_err(|e| {
                     format!("Failed to parse content of {ftl_file_path:?} as Fluent resource:\n{e}")
                 })?;
-                let existing_message_ids = get_message_ids(&resource);
+                let existing_message_ids = resource.message_ids();
                 let message_id = match &entry {
                     Entry::Message(message) => &message.id.name,
                     _ => panic!("Entry must be a message."),

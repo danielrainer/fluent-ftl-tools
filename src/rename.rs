@@ -4,7 +4,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use crate::{format_resource, get_message_ids, parse_as_syntax_resource};
+use crate::{HasEntries, format_resource, parse_as_syntax_resource};
 use fluent_syntax::ast::{
     Expression, Identifier, InlineExpression, Message, Pattern, PatternElement, Resource,
 };
@@ -42,7 +42,7 @@ fn rename_in_file<P: AsRef<Path>>(
     variable_update: &HashMap<String, String>,
 ) -> Result<Resource<String>, String> {
     let mut resource = parse_as_syntax_resource(file.as_ref())?;
-    let existing_ids = get_message_ids(&resource);
+    let existing_ids = resource.message_ids();
     if !existing_ids.contains(old_id) {
         eprintln!(
             "file {:?}: ID '{old_id}' does not exist. No renaming performed.",

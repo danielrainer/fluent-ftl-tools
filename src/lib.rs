@@ -469,12 +469,28 @@ pub fn serialize_resources_to_files<P: AsRef<Path>>(
     }
 }
 
-pub fn get_message_ids(resource: &Resource<String>) -> HashSet<&str> {
-    let mut ids = HashSet::new();
-    for entry in &resource.body {
-        if let Entry::Message(message) = entry {
-            ids.insert(message.id.name.as_str());
-        }
+pub trait HasEntries<'a, S: AsRef<str> + 'a> {
+    fn get_entries(&'a self) -> impl Iterator<Item = &'a Entry<S>>;
+
+    fn message_ids(&'a self) -> HashSet<&'a str> {
+        HashSet::from_iter(self.get_entries().filter_map(|entry| {
+            if let Entry::Message(message) = entry {
+                Some(message.id.name.as_ref())
+            } else {
+                None
+            }
+        }))
     }
-    ids
+}
+
+impl<'a, S: AsRef<str> + 'a> HasEntries<'a, S> for Resource<S> {
+    fn get_entries(&'a self) -> impl Iterator<Item = &'a Entry<S>> {
+        self.body.iter()
+    }
+}
+
+impl<'a> HasEntries<'a, &'a str> for FluentResource {
+    fn get_entries(&'a self) -> impl Iterator<Item = &'a Entry<&'a str>> {
+        self.entries()
+    }
 }
