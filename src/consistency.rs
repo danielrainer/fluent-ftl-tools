@@ -41,14 +41,15 @@ pub fn check_all_resources<
 ) -> Result<(), String> {
     check_internal_consistency(default_resource.1)
         .map_err(|e| format!("Errors in {:?}:\n{e}", default_resource.0))?;
-    let message_ids_default = default_resource.1.message_ids();
+    let message_vars_default = default_resource.1.all_message_vars()?;
+    let message_ids_default = HashSet::from_iter(message_vars_default.keys().copied());
     for (name, res) in other_resources {
         check_internal_consistency(res)
             .map_err(|e| format!("Errors in {:?}:\n{e}", name.as_ref()))?;
         let message_ids_res = res.message_ids();
         check_for_extra_ids(&message_ids_default, &message_ids_res)
             .map_err(|e| format!("Errors in {:?}:\n{e}", name.as_ref()))?;
-        // TODO: Check if the variables used with each message match.
+        res.check_variables_of_all_messages(&message_vars_default)?;
     }
     Ok(())
 }

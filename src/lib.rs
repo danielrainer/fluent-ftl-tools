@@ -7,16 +7,22 @@ use std::{
 
 use fluent::{FluentBundle, FluentError, FluentResource};
 use fluent_syntax::{
-    ast::{Comment, Entry, Resource},
+    ast::{Comment, Entry, Message, Resource, Term},
     parser::{Parser, ParserError},
     serializer::{Options, Serializer},
 };
 use unic_langid::LanguageIdentifier;
 
+use crate::variables::{
+    check_if_expected_variables_match_message_impl, check_variables_of_all_messages_impl,
+    variables_in_message_impl,
+};
+
 pub mod consistency;
 pub mod format;
 pub mod missing;
 pub mod rename;
+pub mod variables;
 
 pub fn parse_str_as_syntax_resource(input: &str) -> Result<Resource<String>, String> {
     let parser = Parser::new(input.to_owned());
@@ -480,6 +486,63 @@ pub trait HasEntries<'a, S: AsRef<str> + 'a> {
                 None
             }
         }))
+    }
+
+    fn messages(&'a self) -> HashMap<&'a str, &'a Message<S>> {
+        HashMap::from_iter(self.get_entries().filter_map(|entry| {
+            if let Entry::Message(message) = entry {
+                Some((message.id.name.as_ref(), message))
+            } else {
+                None
+            }
+        }))
+    }
+
+    fn terms(&'a self) -> HashMap<&'a str, &'a Term<S>> {
+        HashMap::from_iter(self.get_entries().filter_map(|entry| {
+            if let Entry::Term(term) = entry {
+                Some((term.id.name.as_ref(), term))
+            } else {
+                None
+            }
+        }))
+    }
+
+    fn check_if_expected_variables_match_message(
+        &'a self,
+        expected: &HashSet<&str>,
+        message_id: &str,
+    ) -> Result<(), String> {
+        let messages = self.messages();
+        let terms = self.terms();
+        check_if_expected_variables_match_message_impl(expected, message_id, &messages, &terms)
+    }
+
+    fn all_message_vars(&'a self) -> Result<HashMap<&'a str, HashSet<&'a str>>, String> {
+        let messages = self.messages();
+        let terms = self.terms();
+        Ok(HashMap::from_iter(
+            self.message_ids()
+                .iter()
+                .map(|&message_id| {
+                    variables_in_message_impl(message_id, &messages, &terms)
+                        .map(|vars| (message_id, vars))
+                })
+                .collect::<Result<Vec<(&str, HashSet<&str>)>, String>>()?,
+        ))
+    }
+
+    /// Check that all messages use exactly the variables specified by `expected`,
+    /// where the key of `expected` specifies the message ID and the value the set of free
+    /// variables which should be used in the corresponding message.
+    /// Only messages which are present in [`self`] and `expected` are considered.
+    /// Other messages are silently ignored.
+    fn check_variables_of_all_messages(
+        &'a self,
+        expected: &HashMap<&str, HashSet<&str>>,
+    ) -> Result<(), String> {
+        let actual = self.all_message_vars()?;
+        check_variables_of_all_messages_impl(expected, &actual)
     }
 }
 
