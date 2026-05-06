@@ -1,6 +1,8 @@
+use anyhow::{Result, bail, ensure};
 use std::{collections::HashMap, io::BufRead};
 
 mod parsing_state {
+    use anyhow::{Result, bail, ensure};
     use std::collections::HashMap;
 
     pub(super) struct ParsingState {
@@ -26,26 +28,21 @@ mod parsing_state {
         Invalid(String),
     }
 
-    fn parse_c_string_literal(literal: &str) -> Result<String, String> {
+    fn parse_c_string_literal(literal: &str) -> Result<String> {
         let mut chars = literal.chars();
         let Some(first_char) = chars.next() else {
-            return Err("Expected double-quote delimited string literal, but got nothing.".into());
+            bail!("Expected double-quote delimited string literal, but got nothing.");
         };
         if first_char != '"' {
-            return Err(format!(
-                "Expected double quote at start of string literal but got '{first_char}'"
-            ));
+            bail!("Expected double quote at start of string literal but got '{first_char}'");
         }
         let Some(last_char) = chars.next_back() else {
-            return Err(
-                "Expected double-quote at the end of a string literal, but got nothing.".into(),
-            );
+            bail!("Expected double-quote at the end of a string literal, but got nothing.");
         };
-        if last_char != '"' {
-            return Err(format!(
-                "Expected double quote at end of string literal but got '{last_char}'"
-            ));
-        }
+        ensure!(
+            last_char == '"',
+            "Expected double quote at end of string literal but got '{last_char}'"
+        );
         // remaining chars will now be the actual string content.
 
         let mut parsed_string = String::new();
@@ -85,13 +82,15 @@ mod parsing_state {
                         parsed_string.push('\\');
                     }
                     other => {
-                        return Err(format!("Unsupported escaped character: {other}"));
+                        bail!("Unsupported escaped character: {other}");
                     }
                 }
                 is_escaped = false;
             } else {
                 if character == '"' {
-                    return Err("Unescaped double quote appeared in string literal before it was supposed to end.".into());
+                    bail!(
+                        "Unescaped double quote appeared in string literal before it was supposed to end."
+                    );
                 }
                 if character == '\\' {
                     is_escaped = true;
@@ -102,7 +101,7 @@ mod parsing_state {
         }
 
         if is_escaped {
-            return Err("Unterminated escape at the end of the string.".into());
+            bail!("Unterminated escape at the end of the string.");
         }
 
         Ok(parsed_string)
@@ -171,7 +170,7 @@ mod parsing_state {
             }
         }
 
-        pub(super) fn add_line(&mut self, line: &str) -> Result<(), String> {
+        pub(super) fn add_line(&mut self, line: &str) -> Result<()> {
             let state = self.entry_state.clone();
             self.line_number += 1;
             match determine_line_type(line) {
@@ -180,14 +179,14 @@ mod parsing_state {
                         self.entry_state = EntryState::WaitingForEntry;
                     }
                     EntryState::StartedMsgid(msgid) => {
-                        return Err(format!(
+                        bail!(
                             "line {}, msgid \"{msgid}\": msgid must be directly followed by msgstr.",
                             self.line_number
-                        ));
+                        );
                     }
                     EntryState::StartedMsgstr(msgid, msgstr) => {
                         if let Err(err) = self.add_entry(msgid, msgstr) {
-                            return Err(format!("line {}: {err}", self.line_number));
+                            bail!("line {}: {err}", self.line_number);
                         }
                         self.entry_state = EntryState::WaitingForEntry;
                     }
@@ -197,41 +196,41 @@ mod parsing_state {
                         self.entry_state = EntryState::StartedMsgid(msgid);
                     }
                     EntryState::StartedMsgid(second_msgid) => {
-                        return Err(format!(
+                        bail!(
                             "line {}: two consecutive msgids: \"{msgid}\" and \"{second_msgid}\"",
                             self.line_number
-                        ));
+                        );
                     }
                     EntryState::StartedMsgstr(old_msgid, old_msgstr) => {
                         if let Err(err) = self.add_entry(old_msgid, old_msgstr) {
-                            return Err(format!("line {}: {err}", self.line_number));
+                            bail!("line {}: {err}", self.line_number);
                         }
                         self.entry_state = EntryState::StartedMsgid(msgid);
                     }
                 },
                 LineType::MsgstrStart(msgstr) => match state {
                     EntryState::WaitingForEntry => {
-                        return Err(format!(
+                        bail!(
                             "line {}: msgstr \"{msgstr}\" without preceding msgid.",
                             self.line_number
-                        ));
+                        );
                     }
                     EntryState::StartedMsgid(msgid) => {
                         self.entry_state = EntryState::StartedMsgstr(msgid, msgstr);
                     }
                     EntryState::StartedMsgstr(msgid, first_msgstr) => {
-                        return Err(format!(
+                        bail!(
                             "line {}: two consecutive msgstrs for msgid \"{msgid}\": \"{first_msgstr}\" and \"{msgstr}\"",
                             self.line_number
-                        ));
+                        );
                     }
                 },
                 LineType::QuotedString(string) => match state {
                     EntryState::WaitingForEntry => {
-                        return Err(format!(
+                        bail!(
                             "line {}: string literal not part of a msgid or msgstr: \"{string}\"",
                             self.line_number,
-                        ));
+                        );
                     }
                     EntryState::StartedMsgid(mut msgid) => {
                         msgid.push_str(&string);
@@ -243,29 +242,24 @@ mod parsing_state {
                     }
                 },
                 LineType::Unsupported(err) => {
-                    return Err(format!(
+                    bail!(
                         "Unsupported syntax found in line {}: {err}",
                         self.line_number
-                    ));
+                    );
                 }
                 LineType::Invalid(err) => {
-                    return Err(format!(
-                        "Invalid syntax found in line {}: {err}",
-                        self.line_number
-                    ));
+                    bail!("Invalid syntax found in line {}: {err}", self.line_number);
                 }
             }
             Ok(())
         }
 
         /// Call this after all lines have been parsed to obtain the parsed localization map.
-        pub(super) fn finish(mut self) -> Result<HashMap<String, String>, String> {
+        pub(super) fn finish(mut self) -> Result<HashMap<String, String>> {
             match &self.entry_state {
                 EntryState::WaitingForEntry => {}
                 EntryState::StartedMsgid(msgid) => {
-                    return Err(format!(
-                        "Trailing msgid '{msgid}' without corresponding msgstr."
-                    ));
+                    bail!("Trailing msgid '{msgid}' without corresponding msgstr.");
                 }
                 EntryState::StartedMsgstr(msgid, msgstr) => {
                     self.add_entry(msgid.to_owned(), msgstr.to_owned())?;
@@ -275,13 +269,13 @@ mod parsing_state {
         }
 
         /// This adds entries with empty msgstr to enable duplicate msgid detection.
-        fn add_entry(&mut self, msgid: String, msgstr: String) -> Result<(), String> {
-            match self.entries.insert(msgid.clone(), msgstr.clone()) {
-                Some(original_msgstr) => Err(format!(
+        fn add_entry(&mut self, msgid: String, msgstr: String) -> Result<()> {
+            if let Some(original_msgstr) = self.entries.insert(msgid.clone(), msgstr.clone()) {
+                bail!(
                     "Duplicate msgid '{msgid}'. First translated as {original_msgstr}, then as {msgstr}"
-                )),
-                None => Ok(()),
+                )
             }
+            Ok(())
         }
 
         pub(super) fn has_entry(&self) -> bool {
@@ -290,41 +284,37 @@ mod parsing_state {
     }
 }
 
-pub fn parse_po_file(content: &[u8]) -> Result<HashMap<String, String>, String> {
+pub fn parse_po_file(content: &[u8]) -> Result<HashMap<String, String>> {
     let mut state = parsing_state::ParsingState::new();
     for line in content.lines() {
         match line {
             Ok(line) => {
                 state.add_line(&line)?;
             }
-            Err(err) => return Err(format!("Failed to read line: {err}")),
+            Err(err) => bail!("Failed to read line: {err}"),
         }
     }
     state.finish()
 }
 
 /// Indices start at 0.
-pub fn get_message_at_line_index(
-    mut index: usize,
-    content: &[u8],
-) -> Result<(String, String), String> {
+pub fn get_message_at_line_index(mut index: usize, content: &[u8]) -> Result<(String, String)> {
     let mut lines = vec![];
     for line in content.lines() {
         match line {
             Ok(line) => {
                 lines.push(line);
             }
-            Err(err) => return Err(format!("Failed to read line: {err}")),
+            Err(err) => bail!("Failed to read line: {err}"),
         }
     }
-    if index >= lines.len() {
-        return Err("Specified index exceeds the number of lines in the file".into());
-    }
+    ensure!(
+        index < lines.len(),
+        "Specified index exceeds the number of lines in the file"
+    );
     let mut state = parsing_state::ParsingState::new();
     while let Err(err) = state.add_line(&lines[index]) {
-        if index == 0 {
-            return Err(format!("Failed to parse PO file: {err}"));
-        }
+        ensure!(index != 0, "Failed to parse PO file: {err}");
         state = parsing_state::ParsingState::new();
         index -= 1;
     }
@@ -334,7 +324,7 @@ pub fn get_message_at_line_index(
     }
     let mut entries = state.finish()?.into_iter();
     let Some(entry) = entries.next() else {
-        return Err("Did not find any entry.".into());
+        bail!("Did not find any entry.");
     };
     if entries.next().is_some() {
         panic!("Found more than one entry.");

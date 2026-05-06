@@ -1,12 +1,12 @@
+use crate::{HasEntries, format_resource, parse_as_syntax_resource};
+use anyhow::{Context, Result, bail};
+use fluent_syntax::ast::{
+    Expression, Identifier, InlineExpression, Message, Pattern, PatternElement, Resource,
+};
 use std::{
     collections::HashMap,
     hash::Hash,
     path::{Path, PathBuf},
-};
-
-use crate::{HasEntries, format_resource, parse_as_syntax_resource};
-use fluent_syntax::ast::{
-    Expression, Identifier, InlineExpression, Message, Pattern, PatternElement, Resource,
 };
 
 pub struct Args {
@@ -21,7 +21,7 @@ pub fn rename_in_all_files<I, P>(
     old_id: &str,
     new_id: &Option<String>,
     variable_update: &HashMap<String, String>,
-) -> Result<HashMap<P, Resource<String>>, String>
+) -> Result<HashMap<P, Resource<String>>>
 where
     I: IntoIterator<Item = P>,
     P: AsRef<Path> + Hash + Eq,
@@ -40,7 +40,7 @@ fn rename_in_file<P: AsRef<Path>>(
     old_id: &str,
     new_id: &Option<String>,
     variable_update: &HashMap<String, String>,
-) -> Result<Resource<String>, String> {
+) -> Result<Resource<String>> {
     let mut resource = parse_as_syntax_resource(file.as_ref())?;
     let existing_ids = resource.message_ids();
     if !existing_ids.contains(old_id) {
@@ -52,10 +52,7 @@ fn rename_in_file<P: AsRef<Path>>(
     }
     if let Some(new_id) = new_id {
         if existing_ids.contains(new_id.as_str()) {
-            return Err(format!(
-                "file {:?}: ID '{new_id}' already exists.",
-                file.as_ref()
-            ));
+            bail!("file {:?}: ID '{new_id}' already exists.", file.as_ref());
         }
     }
 
@@ -63,7 +60,7 @@ fn rename_in_file<P: AsRef<Path>>(
         if let fluent_syntax::ast::Entry::Message(message) = entry {
             if message.id.name == old_id {
                 rename_message(message, new_id, variable_update)
-                    .map_err(|e| format!("file {:?}: message '{old_id}': {e}", file.as_ref()))?;
+                    .with_context(|| format!("file {:?}: message '{old_id}'", file.as_ref()))?;
                 // IDs must be unique, so we won't miss any by stopping here.
                 break;
             }
@@ -76,18 +73,14 @@ fn rename_message(
     message: &mut Message<String>,
     new_id: &Option<String>,
     variable_update: &HashMap<String, String>,
-) -> Result<(), String> {
+) -> Result<()> {
     if let Some(pattern) = &mut message.value {
         for (old_variable_name, new_variable_name) in variable_update {
             if !pattern_contains_variable(pattern, old_variable_name) {
-                return Err(format!(
-                    "Variable '{old_variable_name}' does not exist in message."
-                ));
+                bail!("Variable '{old_variable_name}' does not exist in message.");
             }
             if pattern_contains_variable(pattern, new_variable_name) {
-                return Err(format!(
-                    "Variable '{new_variable_name}' already exists in message."
-                ));
+                bail!("Variable '{new_variable_name}' already exists in message.");
             }
         }
         for (old_variable_name, new_variable_name) in variable_update {

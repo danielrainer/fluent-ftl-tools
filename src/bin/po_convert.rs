@@ -1,9 +1,4 @@
-use std::{
-    collections::HashMap,
-    io::ErrorKind,
-    path::{Path, PathBuf},
-};
-
+use anyhow::{Context, Result, anyhow, bail, ensure};
 use fluent_ftl_tools::{
     HasEntries, format_resource, get_file_paths_with_extension_from_directory, parse_cli_args,
     parse_directory, parse_fluent_identifiers, parse_single_file_arg, parse_str_as_syntax_resource,
@@ -11,6 +6,11 @@ use fluent_ftl_tools::{
 };
 use fluent_syntax::ast::{Entry, Resource};
 use gettext_po_file_parser::{get_message_at_line_index, parse_po_file};
+use std::{
+    collections::HashMap,
+    io::ErrorKind,
+    path::{Path, PathBuf},
+};
 
 fn print_help() {
     eprintln!(
@@ -47,67 +47,68 @@ fn print_help() {
     );
 }
 
-fn main() {
-    macro_rules! fail {
-        ($fmt:literal $(, $arg:expr)* $(,)?) => {
-            {
-                eprintln!($fmt $(, $arg)*);
-                print_help();
-                std::process::exit(1);
-            }
-        };
-    }
+fn main() -> Result<()> {
+    let (id_source_file_path, args) = parse_cli_args(parse_single_file_arg).with_context(|| {
+        print_help();
+        "Expected arg for PO file but got none."
+    })?;
+    let id_source_file_content = std::fs::read(&id_source_file_path).with_context(|| {
+        print_help();
+        format!("Failed to read PO file {id_source_file_path:?}")
+    })?;
 
-    let (id_source_file_path, args) = parse_cli_args(parse_single_file_arg)
-        .unwrap_or_else(|| fail!("Expected arg for PO file but got none."));
-    let id_source_file_content = std::fs::read(&id_source_file_path)
-        .unwrap_or_else(|e| fail!("Failed to read PO file: {e}"));
+    let (line_number, args) = parse_usize(args).with_context(|| {
+        print_help();
+        "Expected argument for line number but got none."
+    })?;
+    let line_number = line_number.with_context(|| {
+        print_help();
+        "Failed to parse line number"
+    })?;
+    ensure!(
+        line_number != 0,
+        "Line number 0 is invalid. The first line number is 1."
+    );
 
-    let (line_number, args) = parse_usize(args)
-        .unwrap_or_else(|| fail!("Expected argument for line number but got none."));
-    let line_number = line_number.unwrap_or_else(|e| fail!("Failed to parse line number: {e}"));
-    if line_number == 0 {
-        fail!("Line number 0 is invalid. The first line number is 1.");
-    }
+    let (po_dir, args) = parse_directory(args).with_context(|| {
+        print_help();
+        "Failed to parse PO directory"
+    })?;
 
-    let (po_dir, args) = parse_directory(args).unwrap_or_else(|e| {
-        fail!("Failed to parse PO directory:\n{e}");
-    });
+    let (ftl_dir, args) = parse_directory(args).with_context(|| {
+        print_help();
+        "Failed to parse FTL directory"
+    })?;
 
-    let (ftl_dir, args) = parse_directory(args).unwrap_or_else(|e| {
-        fail!("Failed to parse FTL directory:\n{e}");
-    });
-
-    let ids = parse_fluent_identifiers(args).unwrap_or_else(|e| fail!("{e}"));
+    let ids = parse_fluent_identifiers(args).with_context(|| {
+        print_help();
+        "Failed to parse Fluent identifiers"
+    })?;
     let Some(message_id) = ids.first() else {
-        fail!("Expected message ID but found none.");
+        print_help();
+        bail!("Expected message ID but found none.");
     };
     let variable_names = &ids[1..];
 
     // CLI arg parsing done.
 
     let (msgid, _) = get_message_at_line_index(line_number - 1, &id_source_file_content)
-        .unwrap_or_else(|e| fail!("Failed to get message from PO file:\n{e}"));
+        .with_context(|| format!("Failed to get message from PO file {id_source_file_path:?}"))?;
 
     let lang_to_msgstr = build_lang_to_msgstr_map(&msgid, po_dir, id_source_file_path)
-        .unwrap_or_else(|e| {
-            fail!("Failed to obtain msgstrs from PO files:\n{e}");
-        });
+        .context("Failed to obtain msgstrs from PO files")?;
     let lang_to_fluent_entry =
-        build_lang_to_fluent_entry_map(lang_to_msgstr, message_id, variable_names).unwrap_or_else(
-            |e| {
-                fail!("Failed to convert msgstrs to Fluent entries:\n{e}");
-            },
-        );
+        build_lang_to_fluent_entry_map(lang_to_msgstr, message_id, variable_names)
+            .context("Failed to convert msgstrs to Fluent entries")?;
     let resources = build_updated_fluent_resources(lang_to_fluent_entry, &ftl_dir)
-        .unwrap_or_else(|e| fail!("Could not create all updated Fluent resources:\n{e}"));
-    write_resources_to_files(resources)
-        .unwrap_or_else(|e| fail!("Writing Fluent resources to FTL files failed:\n\n{e}"));
+        .context("Could not create all updated Fluent resources")?;
+    write_resources_to_files(resources).context("Writing Fluent resources to FTL files failed")?;
 
     println!(
         "Suggested Rust code to use the new message:\n{}",
         rust_source_suggestion(message_id, variable_names)
     );
+    Ok(())
 }
 
 // Maps from resource language to the corresponding msgstr.
@@ -117,15 +118,20 @@ fn build_lang_to_msgstr_map<P: AsRef<Path>, Q: AsRef<Path>>(
     msgid: &str,
     po_dir: P,
     id_source_file_path: Q,
-) -> Result<HashMap<String, Option<String>>, String> {
-    let po_file_paths = get_file_paths_with_extension_from_directory(&po_dir, "po")
-        .map_err(|e| format!("Failed to get files from PO directory:\n{e}"))?;
+) -> Result<HashMap<String, Option<String>>> {
+    let po_file_paths =
+        get_file_paths_with_extension_from_directory(&po_dir, "po").with_context(|| {
+            format!(
+                "Failed to get files from PO directory {:?}",
+                po_dir.as_ref()
+            )
+        })?;
     let mut map = HashMap::new();
     for path in po_file_paths {
         let content = std::fs::read_to_string(&path)
-            .map_err(|e| format!("Failed to read file {path:?}:\n{e}"))?;
+            .with_context(|| format!("Failed to read file {path:?}"))?;
         let po_data = parse_po_file(content.as_bytes())
-            .map_err(|e| format!("Failed to parse PO file {path:?}:\n{e}"))?;
+            .with_context(|| format!("Failed to parse PO file {path:?}"))?;
         let msgstr = match po_data.get(msgid) {
             Some(msgstr) => {
                 if msgstr.is_empty() {
@@ -141,7 +147,7 @@ fn build_lang_to_msgstr_map<P: AsRef<Path>, Q: AsRef<Path>>(
             .file_stem()
             .unwrap()
             .to_str()
-            .ok_or_else(|| format!("File name {path:?} must valid UTF-8."))?
+            .ok_or_else(|| anyhow!("File name {path:?} must valid UTF-8."))?
             .to_string();
         map.insert(language, msgstr);
     }
@@ -150,7 +156,7 @@ fn build_lang_to_msgstr_map<P: AsRef<Path>, Q: AsRef<Path>>(
         .file_stem()
         .unwrap()
         .to_str()
-        .ok_or_else(|| format!("File name {id_source_file_path:?} must valid UTF-8."))?
+        .ok_or_else(|| anyhow!("File name {id_source_file_path:?} must valid UTF-8."))?
         .to_string();
     let use_msgid = match map.get(&id_source_language) {
         Some(Some(_)) => false,
@@ -169,12 +175,12 @@ fn convert_conversion_specifier<S: AsRef<str>>(
     replacement_variables: &[S],
     variable_index: &mut usize,
     result_string: &mut String,
-) -> Result<(), String> {
+) -> Result<()> {
     *input_char_index += 1;
     let mut specifier_chars = input_chars[(*input_char_index)..].iter();
     // character after %
     let Some(c) = specifier_chars.next() else {
-        return Err("Ran out of characters in conversion specifier.".into());
+        bail!("Ran out of characters in conversion specifier.");
     };
     match c {
         '%' => {
@@ -183,7 +189,7 @@ fn convert_conversion_specifier<S: AsRef<str>>(
         }
         'c' | 'd' | 's' | 'u' => {
             if *variable_index >= replacement_variables.len() {
-                return Err("Insufficient number of variables provided.".into());
+                bail!("Insufficient number of variables provided.");
             }
             result_string.push_str("{ $");
             result_string.push_str(replacement_variables[*variable_index].as_ref());
@@ -191,7 +197,7 @@ fn convert_conversion_specifier<S: AsRef<str>>(
             *variable_index += 1;
         }
         _ => {
-            return Err("Unsupported conversion specifier. Please convert manually.".into());
+            bail!("Unsupported conversion specifier. Please convert manually.");
         }
     }
     Ok(())
@@ -201,7 +207,7 @@ fn fluent_message_from_po_string<S: AsRef<str>>(
     format_string: &str,
     fluent_message_id: &str,
     replacement_variables: &[S],
-) -> Result<String, String> {
+) -> Result<String> {
     let mut result = fluent_message_id.to_string();
     result.push_str(" = ");
     let mut variable_index = 0;
@@ -225,7 +231,8 @@ fn fluent_message_from_po_string<S: AsRef<str>>(
                     replacement_variables,
                     &mut variable_index,
                     &mut result,
-                )?;
+                )
+                .context("Problem with conversion specifier")?;
             }
             c => {
                 result.push(c);
@@ -234,11 +241,11 @@ fn fluent_message_from_po_string<S: AsRef<str>>(
         input_char_index += 1;
     }
     if variable_index < replacement_variables.len() {
-        return Err(format!(
+        bail!(
             "Excess arguments. There are {variable_index} conversion specifiers in\n{format_string}\n\
             but {} variable names were provided.",
             replacement_variables.len()
-        ));
+        );
     }
     Ok(result)
 }
@@ -247,7 +254,7 @@ fn build_lang_to_fluent_entry_map<S: AsRef<str>>(
     lang_to_msgstr: HashMap<String, Option<String>>,
     fluent_message_id: &str,
     replacement_variables: &[S],
-) -> Result<HashMap<String, Option<Entry<String>>>, String> {
+) -> Result<HashMap<String, Option<Entry<String>>>> {
     let mut map = HashMap::new();
     for (lang, po_string) in lang_to_msgstr {
         let fluent_string = match po_string {
@@ -257,7 +264,7 @@ fn build_lang_to_fluent_entry_map<S: AsRef<str>>(
                     fluent_message_id,
                     replacement_variables,
                 )
-                .map_err(|e| format!("Failed to convert PO string \"{po_string}\":\n{e}"))?;
+                .with_context(|| format!("Failed to convert PO string \"{po_string}\""))?;
                 let new_resource = parse_str_as_syntax_resource(&fluent_string)
                     .expect("Building Fluent entry went wrong.");
                 let entry = new_resource
@@ -277,7 +284,7 @@ fn build_lang_to_fluent_entry_map<S: AsRef<str>>(
 fn build_updated_fluent_resources<P: AsRef<Path>>(
     lang_to_fluent_entry: HashMap<String, Option<Entry<String>>>,
     ftl_dir: P,
-) -> Result<HashMap<PathBuf, Option<Resource<String>>>, String> {
+) -> Result<HashMap<PathBuf, Option<Resource<String>>>> {
     let ftl_dir = ftl_dir.as_ref();
     let mut lang_to_resource = HashMap::new();
     for (lang, entry) in lang_to_fluent_entry {
@@ -288,8 +295,8 @@ fn build_updated_fluent_resources<P: AsRef<Path>>(
         };
         let formatted_resource = match std::fs::read_to_string(&ftl_file_path) {
             Ok(content) => {
-                let mut resource = parse_str_as_syntax_resource(&content).map_err(|e| {
-                    format!("Failed to parse content of {ftl_file_path:?} as Fluent resource:\n{e}")
+                let mut resource = parse_str_as_syntax_resource(&content).with_context(|| {
+                    format!("Failed to parse content of {ftl_file_path:?} as Fluent resource")
                 })?;
                 let existing_message_ids = resource.message_ids();
                 let message_id = match &entry {
@@ -297,19 +304,17 @@ fn build_updated_fluent_resources<P: AsRef<Path>>(
                     _ => panic!("Entry must be a message."),
                 };
                 if existing_message_ids.contains(message_id.as_str()) {
-                    return Err(format!(
-                        "File {ftl_file_path:?} already contains the message ID '{message_id}'."
-                    ));
+                    bail!("File {ftl_file_path:?} already contains the message ID '{message_id}'.");
                 }
                 resource.body.push(entry);
                 format_resource(resource)
-                    .map_err(|e| format!("Failed to format resource in {ftl_file_path:?}:\n{e}"))?
+                    .with_context(|| format!("Failed to format resource in {ftl_file_path:?}"))?
             }
             Err(e) => {
                 if e.kind() == ErrorKind::NotFound {
                     Resource { body: vec![entry] }
                 } else {
-                    return Err(format!("Failed to read file {ftl_file_path:?}:\n{e}"));
+                    bail!("Failed to read file {ftl_file_path:?}");
                 }
             }
         };
@@ -318,9 +323,7 @@ fn build_updated_fluent_resources<P: AsRef<Path>>(
     Ok(lang_to_resource)
 }
 
-fn write_resources_to_files(
-    resources: HashMap<PathBuf, Option<Resource<String>>>,
-) -> Result<(), String> {
+fn write_resources_to_files(resources: HashMap<PathBuf, Option<Resource<String>>>) -> Result<()> {
     let mut errors = String::new();
     for (path, resource) in resources {
         let Some(resource) = resource else {
@@ -336,7 +339,7 @@ fn write_resources_to_files(
     if errors.is_empty() {
         Ok(())
     } else {
-        Err(errors)
+        bail!("{errors}")
     }
 }
 

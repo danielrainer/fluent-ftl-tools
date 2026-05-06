@@ -1,6 +1,5 @@
-use std::{io::Read, process::exit};
-
 use fluent_ftl_tools::format::format_text;
+use std::{io::Read, process::exit};
 
 fn main() {
     let mut input = String::new();

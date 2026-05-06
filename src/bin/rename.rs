@@ -1,13 +1,13 @@
 //! Program for renaming IDs and variables in FTL files.
 //! Call without arguments to see usage information.
 
-use std::collections::HashMap;
-
+use anyhow::{Context, Result, bail};
 use fluent_ftl_tools::{
     parse_cli_args, parse_file_args,
     rename::{Args, rename_in_all_files},
     serialize_resources_to_files,
 };
+use std::collections::HashMap;
 
 fn print_help() {
     eprintln!(
@@ -29,31 +29,25 @@ fn print_help() {
     )
 }
 
-fn main() {
-    let args = parse_cli_args(parse_args).unwrap_or_else(|e| {
-        eprintln!("Error:\n{e}");
+fn main() -> Result<()> {
+    let args = parse_cli_args(parse_args).with_context(|| {
         print_help();
-        std::process::exit(1);
-    });
+        "Invalid arguments."
+    })?;
     let resources = rename_in_all_files(
         &args.files,
         &args.old_id,
         &args.new_id,
         &args.variable_update,
     )
-    .unwrap_or_else(|e| {
-        eprintln!("Failed to perform renaming:\n{e}");
-        std::process::exit(1);
-    });
-    serialize_resources_to_files(&resources).unwrap_or_else(|e| {
-        eprintln!("Failed to update files:\n{e}");
-        std::process::exit(1);
-    });
+    .context("Failed to perform renaming.")?;
+    serialize_resources_to_files(&resources).context("Failed to update files.")?;
+    Ok(())
 }
 
-fn parse_args<I: Iterator<Item = String>>(mut args: I) -> Result<Args, String> {
+fn parse_args<I: Iterator<Item = String>>(mut args: I) -> Result<Args> {
     let Some(id_arg) = args.next() else {
-        return Err("No argument specified.".into());
+        bail!("No argument specified.");
     };
     let old_id;
     let new_id;
@@ -75,7 +69,7 @@ fn parse_args<I: Iterator<Item = String>>(mut args: I) -> Result<Args, String> {
             }
             None => {
                 if arg != "--" {
-                    return Err("Invalid arguments.".into());
+                    bail!("Invalid arguments.");
                 }
                 break;
             }

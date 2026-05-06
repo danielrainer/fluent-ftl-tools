@@ -1,22 +1,21 @@
-use std::{
-    collections::{HashMap, HashSet},
-    env::Args,
-    num::ParseIntError,
-    path::{Path, PathBuf},
+use crate::variables::{
+    check_if_expected_variables_match_message_impl, check_variables_of_all_messages_impl,
+    variables_in_message_impl,
 };
-
+use anyhow::{Context, Result, anyhow, bail};
 use fluent::{FluentBundle, FluentError, FluentResource};
 use fluent_syntax::{
     ast::{Comment, Entry, Message, Resource, Term},
     parser::{Parser, ParserError},
     serializer::{Options, Serializer},
 };
-use unic_langid::LanguageIdentifier;
-
-use crate::variables::{
-    check_if_expected_variables_match_message_impl, check_variables_of_all_messages_impl,
-    variables_in_message_impl,
+use std::{
+    collections::{HashMap, HashSet},
+    env::Args,
+    num::ParseIntError,
+    path::{Path, PathBuf},
 };
+use unic_langid::LanguageIdentifier;
 
 pub mod consistency;
 pub mod format;
@@ -24,19 +23,19 @@ pub mod missing;
 pub mod rename;
 pub mod variables;
 
-pub fn parse_str_as_syntax_resource(input: &str) -> Result<Resource<String>, String> {
+pub fn parse_str_as_syntax_resource(input: &str) -> Result<Resource<String>> {
     let parser = Parser::new(input.to_owned());
     parser
         .parse()
-        .map_err(|(_, errors)| display_parse_errors(&errors, input))
+        .map_err(|(_, errors)| anyhow!(display_parse_errors(&errors, input)))
 }
 
-pub fn parse_as_syntax_resource<P: AsRef<Path>>(path: P) -> Result<Resource<String>, String> {
+pub fn parse_as_syntax_resource<P: AsRef<Path>>(path: P) -> Result<Resource<String>> {
     let file_content = std::fs::read_to_string(&path)
-        .map_err(|e| format!("Failed to read from {:?}:\n{e}", path.as_ref()))?;
+        .with_context(|| format!("Failed to read from {:?}", path.as_ref()))?;
     let parser = Parser::new(file_content.clone());
     parser.parse().map_err(|(_, errors)| {
-        format!(
+        anyhow!(
             "Error parsing data obtained from {:?}:\n{}",
             path.as_ref(),
             display_parse_errors(&errors, &file_content)
@@ -44,11 +43,11 @@ pub fn parse_as_syntax_resource<P: AsRef<Path>>(path: P) -> Result<Resource<Stri
     })
 }
 
-pub fn parse_as_fluent_resource<P: AsRef<Path>>(path: P) -> Result<FluentResource, String> {
+pub fn parse_as_fluent_resource<P: AsRef<Path>>(path: P) -> Result<FluentResource> {
     let file_content = std::fs::read_to_string(&path)
-        .map_err(|e| format!("Failed to read from {:?}:\n{e}", path.as_ref()))?;
+        .with_context(|| format!("Failed to read from {:?}", path.as_ref()))?;
     FluentResource::try_new(file_content.clone()).map_err(|(_, errors)| {
-        format!(
+        anyhow!(
             "Error parsing data obtained from {:?}:\n{}",
             path.as_ref(),
             display_parse_errors(&errors, &file_content)
@@ -56,12 +55,12 @@ pub fn parse_as_fluent_resource<P: AsRef<Path>>(path: P) -> Result<FluentResourc
     })
 }
 
-pub fn make_bundle(resource: &FluentResource) -> Result<FluentBundle<&FluentResource>, String> {
+pub fn make_bundle(resource: &FluentResource) -> Result<FluentBundle<&FluentResource>> {
     let lang_id: LanguageIdentifier = "en".parse().unwrap();
     let mut bundle = FluentBundle::new(vec![lang_id]);
     bundle
         .add_resource(resource)
-        .map_err(|errors| display_fluent_errors(&errors))?;
+        .map_err(|errors| anyhow!(display_fluent_errors(&errors)))?;
     Ok(bundle)
 }
 
@@ -115,13 +114,8 @@ fn display_fluent_errors(errors: &[FluentError]) -> String {
     error_message
 }
 
-pub fn format_resource(resource: Resource<String>) -> Result<Resource<String>, String> {
+pub fn format_resource(resource: Resource<String>) -> Result<Resource<String>> {
     use fluent_syntax::ast::Entry;
-    macro_rules! fail {
-        ($fmt:literal $(, $arg:expr)* $(,)?) => {
-            return Err(format!($fmt $(, $arg)*))
-        };
-    }
     fn serialize_comment(comment: &Comment<String>, prefix: &str) -> String {
         let mut serializer = Serializer::new(Options { with_junk: false });
         serializer.serialize_free_comment(comment, prefix);
@@ -145,7 +139,7 @@ pub fn format_resource(resource: Resource<String>) -> Result<Resource<String>, S
                 terms.push(term);
             }
             Entry::Comment(comment) => {
-                fail!(
+                bail!(
                     "Found standalone comment.\n\
                     Comments must either be resource-level comments (###) at the beginning of the file \
                     or attached to messages or terms by putting them directly above them.\n\
@@ -155,7 +149,7 @@ pub fn format_resource(resource: Resource<String>) -> Result<Resource<String>, S
                 );
             }
             Entry::GroupComment(comment) => {
-                fail!(
+                bail!(
                     "Found standalone comment.\n\
                     Comments must either be resource-level comments (###) at the beginning of the file \
                     or attached to messages or terms by putting them directly above them.\n\
@@ -166,7 +160,7 @@ pub fn format_resource(resource: Resource<String>) -> Result<Resource<String>, S
             }
             Entry::ResourceComment(comment) => {
                 if initial_comments_over {
-                    fail!(
+                    bail!(
                         "Found resource comment after the initial section. Relevant comment:\n{}",
                         serialize_comment(&comment, "###")
                     );
@@ -174,7 +168,7 @@ pub fn format_resource(resource: Resource<String>) -> Result<Resource<String>, S
                 sorted_entries.push(Entry::ResourceComment(comment));
             }
             Entry::Junk { content } => {
-                fail!("Resource contains junk:\n{content}");
+                bail!("Resource contains junk:\n{content}");
             }
         }
     }
@@ -193,10 +187,10 @@ pub fn format_resource(resource: Resource<String>) -> Result<Resource<String>, S
     })
 }
 
-pub fn is_formatted(ftl_data: &str) -> Result<bool, String> {
+pub fn is_formatted(ftl_data: &str) -> Result<bool> {
     let resource = Parser::new(ftl_data.to_string())
         .parse()
-        .map_err(|(_, errors)| display_parse_errors(&errors, ftl_data))?;
+        .map_err(|(_, errors)| anyhow!(display_parse_errors(&errors, ftl_data)))?;
     let formatted_resource = format_resource(resource)?;
     let formatted_resource_text = serialize_resource(&formatted_resource);
     Ok(formatted_resource_text == ftl_data)
@@ -205,22 +199,17 @@ pub fn is_formatted(ftl_data: &str) -> Result<bool, String> {
 pub fn get_file_paths_with_extension_from_directory<P: AsRef<Path>>(
     path: P,
     expected_extension: &str,
-) -> Result<Vec<PathBuf>, String> {
+) -> Result<Vec<PathBuf>> {
     let path = path.as_ref();
     let mut files = vec![];
     for dir_entry in
-        std::fs::read_dir(path).map_err(|e| format!("Failed to read directory {path:?}: {e}"))?
+        std::fs::read_dir(path).with_context(|| format!("Failed to read directory {path:?}"))?
     {
         let dir_entry = dir_entry
-            .map_err(|e| format!("Failed to read directory entry of path {path:?}: {e}"))?;
+            .with_context(|| format!("Failed to read directory entry of path {path:?}"))?;
         if dir_entry
             .metadata()
-            .map_err(|e| {
-                format!(
-                    "Failed to get metadata for path {:?}: {e}",
-                    dir_entry.path()
-                )
-            })?
+            .with_context(|| format!("Failed to get metadata for path {:?}", dir_entry.path()))?
             .is_file()
         {
             if let Some(extension) = dir_entry.path().extension() {
@@ -238,15 +227,13 @@ pub fn get_file_paths_with_extension_from_directory<P: AsRef<Path>>(
 /// - If it's a directory, returns paths to all direct child files with the `.ftl` extension in the
 ///   directory.
 /// - Otherwise, an error message is returned. Symbolic links are unsupported.
-fn get_ftl_paths_from_path<P: AsRef<Path>>(path: P) -> Result<Vec<PathBuf>, String> {
+fn get_ftl_paths_from_path<P: AsRef<Path>>(path: P) -> Result<Vec<PathBuf>> {
     let path = path.as_ref().to_path_buf();
     let mut files = vec![];
     let metadata = std::fs::metadata(&path)
-        .map_err(|e| format!("Failed to obtain metadata for path {path:?}: {e}"))?;
+        .with_context(|| format!("Failed to obtain metadata for path {path:?}"))?;
     if metadata.is_symlink() {
-        return Err(format!(
-            "Symbolic links are not supported. Affected path: {path:?}"
-        ));
+        bail!("Symbolic links are not supported. Affected path: {path:?}");
     }
     if metadata.is_file() {
         files.push(path);
@@ -285,39 +272,33 @@ pub fn parse_single_file_arg<I: Iterator<Item = String>>(args: I) -> Option<(Pat
 
 /// https://github.com/projectfluent/fluent/blob/master/spec/fluent.ebnf
 /// Identifier          ::= [a-zA-Z] [a-zA-Z0-9_-]*
-pub fn parse_fluent_identifier<S: AsRef<str>>(arg: S) -> Result<(), String> {
+pub fn parse_fluent_identifier<S: AsRef<str>>(arg: S) -> Result<()> {
     let str_arg = arg.as_ref();
     let mut chars = str_arg.chars();
     if let Some(first) = chars.next() {
         if !first.is_ascii_alphabetic() {
-            return Err(format!(
+            bail!(
                 "Identifier must start with an alphabetic ASCII character but starts with '{first}'."
-            ));
+            );
         }
     } else {
-        return Err("Identifier may not be empty.".into());
+        bail!("Identifier may not be empty.");
     }
     for c in chars {
         if (!c.is_ascii_alphanumeric()) && c != '_' && c != '-' {
-            return Err(format!(
+            bail!(
                 "Identifier characters must be alphanumeric ASCII or '_' or '-'. Found '{c}' instead."
-            ));
+            );
         }
     }
     Ok(())
 }
 
-pub fn parse_fluent_identifiers<I: Iterator<Item = String>>(
-    args: I,
-) -> Result<Vec<String>, String> {
+pub fn parse_fluent_identifiers<I: Iterator<Item = String>>(args: I) -> Result<Vec<String>> {
     let mut ids = vec![];
     for arg in args {
-        match parse_fluent_identifier(&arg) {
-            Ok(()) => ids.push(arg),
-            Err(e) => {
-                return Err(format!("Failed to parse Fluent identifier:\n{e}"));
-            }
-        }
+        parse_fluent_identifier(&arg).context("Failed to parse Fluent identifier.")?;
+        ids.push(arg);
     }
     Ok(ids)
 }
@@ -336,31 +317,32 @@ pub fn parse_until_double_minus<I: Iterator<Item = String>, T, F: Fn(String) -> 
     None
 }
 
-pub fn parse_directory<I: Iterator<Item = String>>(mut args: I) -> Result<(PathBuf, I), String> {
+pub fn parse_directory<I: Iterator<Item = String>>(mut args: I) -> Result<(PathBuf, I)> {
     let Some(path) = args.next() else {
-        return Err("Tried to get directory argument but found no more argument.".into());
+        bail!("Tried to get directory argument but found no more argument.");
     };
     let path = PathBuf::from(path);
     let metadata = std::fs::metadata(&path)
-        .map_err(|e| format!("Failed to obtain metadata for path {path:?}: {e}"))?;
+        .with_context(|| format!("Failed to obtain metadata for path {path:?}."))?;
     if !metadata.is_dir() {
-        return Err(format!("Path {path:?} is not a directory."));
+        bail!("Path {path:?} is not a directory.");
     }
     Ok((path, args))
 }
 
-pub fn parse_file_args<I: Iterator<Item = String>>(mut args: I) -> Result<Vec<PathBuf>, String> {
+pub fn parse_file_args<I: Iterator<Item = String>>(mut args: I) -> Result<Vec<PathBuf>> {
     let mut file_paths = match args.next() {
         Some(path) => get_ftl_paths_from_path(&path)?,
         None => {
             // default to all `.ftl` files in cwd
             get_ftl_paths_from_path(
                 std::env::current_dir()
-                    .map_err(|e| format!("Failed to obtain working directory: {e}"))?
+                    .context("Failed to obtain working directory.")?
                     .to_str()
                     .ok_or_else(|| {
-                        "Current working directory has a non-UTF-8 path, which is unsupported."
-                            .to_string()
+                        anyhow!(
+                            "Current working directory has a non-UTF-8 path, which is unsupported."
+                        )
                     })?,
             )?
         }
@@ -373,27 +355,27 @@ pub fn parse_file_args<I: Iterator<Item = String>>(mut args: I) -> Result<Vec<Pa
 
 pub fn parse_file_args_with_required_file<I: Iterator<Item = String>>(
     mut args: I,
-) -> Result<(PathBuf, Vec<PathBuf>), String> {
+) -> Result<(PathBuf, Vec<PathBuf>)> {
     let Some(required_file_path) = args.next() else {
-        return Err("Too few arguments.".into());
+        bail!("Too few arguments.");
     };
     let required_file_paths = get_ftl_paths_from_path(required_file_path)?;
     let required_file_path = match required_file_paths.len() {
         1 => required_file_paths[0].clone(),
         other => {
-            return Err(format!(
+            bail!(
                 "First argument must refer to exactly one file.\n\
                 Instead, it refers to {other}:\n{:?}\n\
                 ",
                 required_file_paths
-            ));
+            );
         }
     };
     let other_file_paths = parse_file_args(args)?;
     Ok((required_file_path, other_file_paths))
 }
 
-fn tempfile<P: AsRef<Path>>(path: P) -> std::io::Result<PathBuf> {
+fn tempfile<P: AsRef<Path>>(path: P) -> Result<PathBuf> {
     let mut path = path.as_ref().to_path_buf();
     let mut file_name = path
         .file_name()
@@ -413,7 +395,7 @@ pub fn serialize_resource(resource: &Resource<String>) -> String {
 pub fn serialize_resource_to_file<P: AsRef<Path>>(
     resource: &Resource<String>,
     path: P,
-) -> std::io::Result<()> {
+) -> Result<()> {
     let tmp_file = tempfile(&path)?;
     let text = serialize_resource(resource);
     std::fs::write(&tmp_file, text)?;
@@ -424,7 +406,7 @@ pub fn serialize_resource_to_file<P: AsRef<Path>>(
 
 pub fn serialize_resources_to_files<P: AsRef<Path>>(
     resources: &HashMap<P, Resource<String>>,
-) -> std::io::Result<()> {
+) -> Result<()> {
     let mut tmp_files = Vec::with_capacity(resources.len());
     for (path, resource) in resources {
         let new_path = tempfile(path)?;
@@ -465,7 +447,7 @@ pub fn serialize_resources_to_files<P: AsRef<Path>>(
                 backup_path
             ));
         }
-        Err(std::io::Error::other(error_message))
+        bail!("{error_message}");
     } else {
         for (_, new_path, backup_path, _) in tmp_files {
             let _ = std::fs::remove_file(new_path);
@@ -512,13 +494,13 @@ pub trait HasEntries<'a, S: AsRef<str> + 'a> {
         &'a self,
         expected: &HashSet<&str>,
         message_id: &str,
-    ) -> Result<(), String> {
+    ) -> Result<()> {
         let messages = self.messages();
         let terms = self.terms();
         check_if_expected_variables_match_message_impl(expected, message_id, &messages, &terms)
     }
 
-    fn all_message_vars(&'a self) -> Result<HashMap<&'a str, HashSet<&'a str>>, String> {
+    fn all_message_vars(&'a self) -> Result<HashMap<&'a str, HashSet<&'a str>>> {
         let messages = self.messages();
         let terms = self.terms();
         Ok(HashMap::from_iter(
@@ -528,7 +510,7 @@ pub trait HasEntries<'a, S: AsRef<str> + 'a> {
                     variables_in_message_impl(message_id, &messages, &terms)
                         .map(|vars| (message_id, vars))
                 })
-                .collect::<Result<Vec<(&str, HashSet<&str>)>, String>>()?,
+                .collect::<Result<Vec<(&str, HashSet<&str>)>>>()?,
         ))
     }
 
@@ -540,7 +522,7 @@ pub trait HasEntries<'a, S: AsRef<str> + 'a> {
     fn check_variables_of_all_messages(
         &'a self,
         expected: &HashMap<&str, HashSet<&str>>,
-    ) -> Result<(), String> {
+    ) -> Result<()> {
         let actual = self.all_message_vars()?;
         check_variables_of_all_messages_impl(expected, &actual)
     }

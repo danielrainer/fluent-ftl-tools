@@ -38,9 +38,18 @@ path = "src/bin/rename.rs"
 name = "show-missing"
 path = "src/bin/show_missing.rs"
 
-[dependencies]
+[workspace.dependencies]
+anyhow = "1.0.102"
 fluent = { git = "https://github.com/danielrainer/fluent-rs", rev = "cf712bced280b217b6307edabc2089b3e57204ab" }
 fluent-syntax = { git = "https://github.com/danielrainer/fluent-rs", rev = "cf712bced280b217b6307edabc2089b3e57204ab" }
 gettext-po-file-parser = { path = "crates/gettext-po-file-parser" }
 nix = { version = "0.30", features = ["fs"] }
 unic-langid = "0.9.6"
+
+[dependencies]
+anyhow.workspace = true
+fluent.workspace = true
+fluent-syntax.workspace = true
+gettext-po-file-parser.workspace = true
+nix.workspace = true
+unic-langid.workspace = true

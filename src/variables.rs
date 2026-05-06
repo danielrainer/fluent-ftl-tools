@@ -1,8 +1,8 @@
-use std::collections::{HashMap, HashSet};
-
+use anyhow::{Result, anyhow, bail};
 use fluent_syntax::ast::{
     CallArguments, Expression, Identifier, InlineExpression, Message, PatternElement, Term,
 };
+use std::collections::{HashMap, HashSet};
 
 const MAX_RECURSION_DEPTH: usize = 100;
 const RECURSION_DEPTH_ERROR: &str =
@@ -10,7 +10,7 @@ const RECURSION_DEPTH_ERROR: &str =
 macro_rules! check_depth {
     ($depth:expr) => {
         if $depth > MAX_RECURSION_DEPTH {
-            return Err(RECURSION_DEPTH_ERROR.into());
+            bail!("{RECURSION_DEPTH_ERROR}");
         }
     };
 }
@@ -18,21 +18,21 @@ macro_rules! check_depth {
 fn get_term_by_id<'a, S: AsRef<str>>(
     term_id: &str,
     terms: &HashMap<&'a str, &'a Term<S>>,
-) -> Result<&'a Term<S>, String> {
+) -> Result<&'a Term<S>> {
     terms
         .get(term_id)
         .copied()
-        .ok_or(format!("No term with id '{term_id}' found."))
+        .ok_or(anyhow!("No term with id '{term_id}' found."))
 }
 
 fn get_message_by_id<'a, S: AsRef<str>>(
     message_id: &str,
     messages: &HashMap<&'a str, &'a Message<S>>,
-) -> Result<&'a Message<S>, String> {
+) -> Result<&'a Message<S>> {
     messages
         .get(message_id)
         .copied()
-        .ok_or(format!("No message with id '{message_id}' found."))
+        .ok_or(anyhow!("No message with id '{message_id}' found."))
 }
 
 fn get_variables_of_term<'a, S: AsRef<str>>(
@@ -43,7 +43,7 @@ fn get_variables_of_term<'a, S: AsRef<str>>(
     variables_found: &mut HashSet<&'a str>,
     bound_variables: &HashSet<&'a str>,
     depth: usize,
-) -> Result<(), String> {
+) -> Result<()> {
     check_depth!(depth);
     let term = get_term_by_id(term_id, terms)?;
     if let Some(attribute_to_visit) = attribute {
@@ -63,9 +63,9 @@ fn get_variables_of_term<'a, S: AsRef<str>>(
                 return Ok(());
             }
         }
-        return Err(format!(
+        bail!(
             "Tried to use attribute '{attribute_name}' of term '{term_id}', which does not exist."
-        ));
+        );
     }
     for pattern_element in &term.value.elements {
         get_variables_of_pattern_element(
@@ -99,7 +99,7 @@ fn get_variables_of_call_arguments<'a, S: AsRef<str>>(
     variables_found: &mut HashSet<&'a str>,
     bound_variables: &HashSet<&'a str>,
     depth: usize,
-) -> Result<HashSet<&'a str>, String> {
+) -> Result<HashSet<&'a str>> {
     check_depth!(depth);
     for inline_expression in &call_arguments.positional {
         get_variables_of_inline_expression(
@@ -135,7 +135,7 @@ fn get_variables_of_inline_expression<'a, S: AsRef<str>>(
     variables_found: &mut HashSet<&'a str>,
     bound_variables: &HashSet<&'a str>,
     depth: usize,
-) -> Result<(), String> {
+) -> Result<()> {
     check_depth!(depth);
     match inline_expression {
         InlineExpression::StringLiteral { .. } => {}
@@ -220,7 +220,7 @@ fn get_variables_of_expression<'a, S: AsRef<str>>(
     variables_found: &mut HashSet<&'a str>,
     bound_variables: &HashSet<&'a str>,
     depth: usize,
-) -> Result<(), String> {
+) -> Result<()> {
     check_depth!(depth);
     match expression {
         Expression::Select { selector, variants } => {
@@ -266,7 +266,7 @@ fn get_variables_of_pattern_element<'a, S: AsRef<str>>(
     variables_found: &mut HashSet<&'a str>,
     bound_variables: &HashSet<&'a str>,
     depth: usize,
-) -> Result<(), String> {
+) -> Result<()> {
     check_depth!(depth);
     if let PatternElement::Placeable { expression } = pattern_element {
         get_variables_of_expression(
@@ -289,7 +289,7 @@ fn get_variables_of_message<'a, S: AsRef<str>>(
     variables_found: &mut HashSet<&'a str>,
     bound_variables: &HashSet<&'a str>,
     depth: usize,
-) -> Result<(), String> {
+) -> Result<()> {
     check_depth!(depth);
     let message = get_message_by_id(message_id, messages)?;
     if let Some(attribute_to_visit) = attribute {
@@ -309,9 +309,9 @@ fn get_variables_of_message<'a, S: AsRef<str>>(
                 return Ok(());
             }
         }
-        return Err(format!(
+        bail!(
             "Tried to use attribute '{attribute_name}' of message '{message_id}', which does not exist."
-        ));
+        );
     }
     if let Some(pattern) = &message.value {
         for pattern_element in &pattern.elements {
@@ -345,7 +345,7 @@ pub(crate) fn variables_in_message_impl<'a, S: AsRef<str>>(
     message_id: &'a str,
     messages: &HashMap<&'a str, &'a Message<S>>,
     terms: &HashMap<&'a str, &'a Term<S>>,
-) -> Result<HashSet<&'a str>, String> {
+) -> Result<HashSet<&'a str>> {
     let mut variables_found = HashSet::new();
     let bound_variables = HashSet::new();
     get_variables_of_message(
@@ -396,21 +396,21 @@ pub(crate) fn check_if_expected_variables_match_message_impl<'a, S: AsRef<str>>(
     message_id: &'a str,
     messages: &HashMap<&'a str, &'a Message<S>>,
     terms: &HashMap<&'a str, &'a Term<S>>,
-) -> Result<(), String> {
+) -> Result<()> {
     let actual = variables_in_message_impl(message_id, messages, terms)?;
     let mut errors = String::new();
     report_set_mismatches(&mut errors, message_id, expected, &actual);
     if errors.is_empty() {
         Ok(())
     } else {
-        Err(errors)
+        bail!("{errors}")
     }
 }
 
 pub(crate) fn check_variables_of_all_messages_impl(
     expected: &HashMap<&str, HashSet<&str>>,
     actual: &HashMap<&str, HashSet<&str>>,
-) -> Result<(), String> {
+) -> Result<()> {
     let mut errors = String::new();
     for (&id, actual_vars) in actual {
         if let Some(expected_vars) = expected.get(id) {
@@ -420,6 +420,6 @@ pub(crate) fn check_variables_of_all_messages_impl(
     if errors.is_empty() {
         Ok(())
     } else {
-        Err(errors)
+        bail!("{errors}")
     }
 }
