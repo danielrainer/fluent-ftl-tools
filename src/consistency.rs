@@ -9,8 +9,6 @@ fn check_internal_consistency(fluent_resource: &FluentResource) -> Result<()> {
     if !is_formatted(fluent_resource.source())? {
         bail!("File does not conform to expected formatting.");
     }
-    // TODO: Check if referenced terms exist and their variables are set.
-    // This requires recursive AST traversal.
     Ok(())
 }
 
