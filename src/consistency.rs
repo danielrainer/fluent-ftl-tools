@@ -1,7 +1,29 @@
-use crate::{HasEntries, is_formatted, make_bundle, parse_as_fluent_resource};
+use crate::{
+    HasEntries,
+    annotate::{Annotation, MessageAnnotationRead},
+    is_formatted, make_bundle, parse_as_fluent_resource, parse_as_syntax_resource,
+    serialize_resources_to_files,
+};
 use anyhow::{Context, Result, bail};
 use fluent::FluentResource;
-use std::{collections::HashSet, path::Path};
+use fluent_syntax::ast::{Entry, Resource};
+use std::{
+    collections::{HashMap, HashSet},
+    hash::Hash,
+    path::Path,
+};
+
+fn check_for_outdated_annotation<'a, S: AsRef<str> + 'a, R: HasEntries<'a, S> + 'a>(
+    resource: &'a R,
+) -> Result<()> {
+    let messages = resource.messages();
+    for (id, message) in messages {
+        if message.has_annotation(Annotation::Outdated)? {
+            bail!("Outdated message: {id}");
+        }
+    }
+    Ok(())
+}
 
 fn check_internal_consistency(fluent_resource: &FluentResource) -> Result<()> {
     // Checks for duplicate definitions.
@@ -9,7 +31,7 @@ fn check_internal_consistency(fluent_resource: &FluentResource) -> Result<()> {
     if !is_formatted(fluent_resource.source())? {
         bail!("File does not conform to expected formatting.");
     }
-    Ok(())
+    check_for_outdated_annotation(fluent_resource)
 }
 
 fn check_for_extra_ids(
@@ -30,22 +52,23 @@ fn check_for_extra_ids(
 
 pub fn check_all_resources<
     'a,
-    S: AsRef<str> + 'a,
-    O: IntoIterator<Item = &'a (S, FluentResource)>,
+    P: AsRef<Path>,
+    Q: AsRef<Path> + 'a,
+    O: IntoIterator<Item = &'a (Q, FluentResource)>,
 >(
-    default_resource: (&str, &FluentResource),
+    default_resource: (P, &FluentResource),
     other_resources: O,
 ) -> Result<()> {
     check_internal_consistency(default_resource.1)
-        .with_context(|| format!("Errors in {:?}", default_resource.0))?;
+        .with_context(|| format!("Errors in {:?}", default_resource.0.as_ref()))?;
     let message_vars_default = default_resource.1.all_message_vars()?;
     let message_ids_default = HashSet::from_iter(message_vars_default.keys().copied());
-    for (name, res) in other_resources {
+    for (path, res) in other_resources {
         check_internal_consistency(res)
-            .with_context(|| format!("Errors in {:?}", name.as_ref()))?;
+            .with_context(|| format!("Errors in {:?}", path.as_ref()))?;
         let message_ids_res = res.message_ids();
         check_for_extra_ids(&message_ids_default, &message_ids_res)
-            .with_context(|| format!("Errors in {:?}", name.as_ref()))?;
+            .with_context(|| format!("Errors in {:?}", path.as_ref()))?;
         res.check_variables_of_all_messages(&message_vars_default)?;
     }
     Ok(())
@@ -63,10 +86,57 @@ pub fn check_all_resource_files<
     let default_resource = parse_as_fluent_resource(&default)?;
     let other_resources = others
         .into_iter()
-        .map(|path| parse_as_fluent_resource(path).map(|res| (format!("{:?}", path.as_ref()), res)))
+        .map(|path| parse_as_fluent_resource(path).map(|res| (path, res)))
         .collect::<Result<Vec<_>>>()?;
-    check_all_resources(
-        (&format!("{:?}", default.as_ref()), &default_resource),
-        &other_resources,
-    )
+    check_all_resources((default, &default_resource), &other_resources)
+}
+
+/// Remove translations of messages which do not appear in the default language or which use
+/// variables not used for this message in the default language.
+pub fn remove_inconsistent_translations<
+    'a,
+    P: AsRef<Path> + Eq + Hash + 'a,
+    O: IntoIterator<Item = &'a P>,
+>(
+    default_resource_vars: HashMap<&str, HashSet<&str>>,
+    others: O,
+) -> Result<()> {
+    let other_resources = others
+        .into_iter()
+        .map(|path| parse_as_syntax_resource(path).map(|res| (path, res)))
+        .collect::<Result<Vec<_>>>()?;
+    let mut updated_resources = HashMap::with_capacity(other_resources.len());
+    for (path, res) in other_resources {
+        let new_body = res
+            .body
+            .into_iter()
+            .filter(|entry| {
+                if let Entry::Message(message) = entry {
+                    default_resource_vars.contains_key(&message.id.name.as_str())
+                } else {
+                    true
+                }
+            })
+            .collect();
+        let res_without_obsolete_messages = Resource { body: new_body };
+        let translation_vars = res_without_obsolete_messages
+            .all_message_vars()
+            .with_context(|| format!("Failed to get message variables from {:?}", path.as_ref()))?;
+        let new_body: Vec<_> = res_without_obsolete_messages
+            .body
+            .iter()
+            .filter(|entry| {
+                if let Entry::Message(message) = entry {
+                    let id = message.id.name.as_str();
+                    default_resource_vars.get(id) == translation_vars.get(id)
+                } else {
+                    true
+                }
+            })
+            .cloned()
+            .collect();
+        let updated_resource = Resource { body: new_body };
+        updated_resources.insert(path, updated_resource);
+    }
+    serialize_resources_to_files(&updated_resources)
 }

@@ -1,6 +1,9 @@
-use crate::variables::{
-    check_if_expected_variables_match_message_impl, check_variables_of_all_messages_impl,
-    variables_in_message_impl,
+use crate::{
+    annotate::MessageAnnotationWrite,
+    variables::{
+        check_if_expected_variables_match_message_impl, check_variables_of_all_messages_impl,
+        variables_in_message_impl,
+    },
 };
 use anyhow::{Context, Result, anyhow, bail};
 use fluent::{FluentBundle, FluentError, FluentResource};
@@ -12,11 +15,13 @@ use fluent_syntax::{
 use std::{
     collections::{HashMap, HashSet},
     env::Args,
+    hash::Hash,
     num::ParseIntError,
     path::{Path, PathBuf},
 };
 use unic_langid::LanguageIdentifier;
 
+pub mod annotate;
 pub mod consistency;
 pub mod format;
 pub mod missing;
@@ -132,7 +137,8 @@ pub fn format_resource(resource: Resource<String>) -> Result<Resource<String>> {
             initial_comments_over = true;
         }
         match entry {
-            Entry::Message(message) => {
+            Entry::Message(mut message) => {
+                message.format()?;
                 messages.push(message);
             }
             Entry::Term(term) => {
@@ -538,4 +544,66 @@ impl<'a> HasEntries<'a, &'a str> for FluentResource {
     fn get_entries(&'a self) -> impl Iterator<Item = &'a Entry<&'a str>> {
         self.entries()
     }
+}
+
+fn filter_resource<S>(
+    resource: Resource<S>,
+    filter: impl Fn(&Entry<S>) -> Result<bool>,
+) -> Result<Resource<S>> {
+    let mut new_body = vec![];
+    for entry in resource.body {
+        if filter(&entry)? {
+            new_body.push(entry);
+        }
+    }
+    Ok(Resource { body: new_body })
+}
+
+pub fn filter_resource_messages<S>(
+    resource: Resource<S>,
+    filter: impl Fn(&Message<S>) -> Result<bool>,
+) -> Result<Resource<S>> {
+    filter_resource(resource, |entry| {
+        if let Entry::Message(message) = &entry {
+            filter(message)
+        } else {
+            Ok(true)
+        }
+    })
+}
+
+pub fn delete_message_from_paths<P: AsRef<Path> + Eq + Hash>(
+    message_id: &str,
+    paths: impl IntoIterator<Item = P>,
+) -> Result<()> {
+    let mut updated_resources = HashMap::new();
+    for path in paths {
+        let resource = parse_as_syntax_resource(&path)?;
+        let resource = filter_resource_messages(resource, |message| {
+            Ok(message.id.name.as_str() != message_id)
+        })?;
+        updated_resources.insert(path, resource);
+    }
+    serialize_resources_to_files(&updated_resources)
+}
+
+// These functions would make sense as part of the `HasEntries` trait, but `FluentResource` does not
+// provide the necessary API for getting an iterator over references to mutable entries.
+
+fn resource_entries_mut<'a, S: AsRef<str> + 'a>(
+    resource: &'a mut Resource<S>,
+) -> impl Iterator<Item = &'a mut Entry<S>> {
+    resource.body.iter_mut()
+}
+
+pub fn resource_messages_mut<'a, S: AsRef<str> + 'a>(
+    resource: &'a mut Resource<S>,
+) -> HashMap<String, &'a mut Message<S>> {
+    HashMap::from_iter(resource_entries_mut(resource).filter_map(|entry| {
+        if let Entry::Message(message) = entry {
+            Some((message.id.name.as_ref().to_owned(), message))
+        } else {
+            None
+        }
+    }))
 }
