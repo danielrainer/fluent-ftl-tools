@@ -84,7 +84,7 @@ fn main() -> Result<()> {
         print_help();
         "Failed to parse Fluent identifiers"
     })?;
-    let Some(message_id) = ids.first() else {
+    let Some(fluent_message_id) = ids.first() else {
         print_help();
         bail!("Expected message ID but found none.");
     };
@@ -92,21 +92,27 @@ fn main() -> Result<()> {
 
     // CLI arg parsing done.
 
-    let (msgid, _) = get_message_at_line_index(line_number - 1, &id_source_file_content)
+    let (gettext_msgid, _) = get_message_at_line_index(line_number - 1, &id_source_file_content)
         .with_context(|| format!("Failed to get message from PO file {id_source_file_path:?}"))?;
 
-    let lang_to_msgstr = build_lang_to_msgstr_map(&msgid, po_dir, id_source_file_path)
+    let lang_to_msgstr = build_lang_to_msgstr_map(&gettext_msgid, po_dir, id_source_file_path)
         .context("Failed to obtain msgstrs from PO files")?;
     let lang_to_fluent_entry =
-        build_lang_to_fluent_entry_map(lang_to_msgstr, message_id, variable_names)
+        build_lang_to_fluent_entry_map(lang_to_msgstr, fluent_message_id, variable_names)
             .context("Failed to convert msgstrs to Fluent entries")?;
+    let mut message_value_for_source = String::new();
+    fluent_message_value_from_po_string(
+        &gettext_msgid,
+        variable_names,
+        &mut message_value_for_source,
+    )
+    .context("Failed to generate Fluent message value for source code suggestion.")?;
     let resources = build_updated_fluent_resources(lang_to_fluent_entry, &ftl_dir)
         .context("Could not create all updated Fluent resources")?;
     write_resources_to_files(resources).context("Writing Fluent resources to FTL files failed")?;
-
     println!(
         "Suggested Rust code to use the new message:\n{}",
-        rust_source_suggestion(message_id, variable_names)
+        rust_source_suggestion(fluent_message_id, message_value_for_source, variable_names)
     );
     Ok(())
 }
@@ -203,26 +209,24 @@ fn convert_conversion_specifier<S: AsRef<str>>(
     Ok(())
 }
 
-fn fluent_message_from_po_string<S: AsRef<str>>(
+fn fluent_message_value_from_po_string<S: AsRef<str>>(
     format_string: &str,
-    fluent_message_id: &str,
     replacement_variables: &[S],
-) -> Result<String> {
-    let mut result = fluent_message_id.to_string();
-    result.push_str(" = ");
+    output: &mut String,
+) -> Result<()> {
     let mut variable_index = 0;
     let input_chars: Vec<char> = format_string.chars().collect();
     let mut input_char_index = 0;
     while input_char_index < input_chars.len() {
         match input_chars[input_char_index] {
             '{' => {
-                result.push_str("{\"{\"}");
+                output.push_str("{\"{\"}");
             }
             '}' => {
-                result.push_str("{\"}\"}");
+                output.push_str("{\"}\"}");
             }
             '\n' => {
-                result.push_str("{ \"\\u000A\" }");
+                output.push_str("{ \"\\u000A\" }");
             }
             '%' => {
                 convert_conversion_specifier(
@@ -230,12 +234,12 @@ fn fluent_message_from_po_string<S: AsRef<str>>(
                     &mut input_char_index,
                     replacement_variables,
                     &mut variable_index,
-                    &mut result,
+                    output,
                 )
                 .context("Problem with conversion specifier")?;
             }
             c => {
-                result.push(c);
+                output.push(c);
             }
         }
         input_char_index += 1;
@@ -247,6 +251,17 @@ fn fluent_message_from_po_string<S: AsRef<str>>(
             replacement_variables.len()
         );
     }
+    Ok(())
+}
+
+fn fluent_message_from_po_string<S: AsRef<str>>(
+    format_string: &str,
+    fluent_message_id: &str,
+    replacement_variables: &[S],
+) -> Result<String> {
+    let mut result = fluent_message_id.to_string();
+    result.push_str(" = ");
+    fluent_message_value_from_po_string(format_string, replacement_variables, &mut result)?;
     Ok(result)
 }
 
@@ -343,16 +358,19 @@ fn write_resources_to_files(resources: HashMap<PathBuf, Option<Resource<String>>
     }
 }
 
-fn rust_source_suggestion<S: AsRef<str>, T: AsRef<str>>(
-    message_id: S,
-    variable_names: &[T],
+fn rust_source_suggestion<S1: AsRef<str>, S2: AsRef<str>, S3: AsRef<str>>(
+    fluent_message_id: S1,
+    fluent_message_value: S2,
+    variable_names: &[S3],
 ) -> String {
     let mut result = String::from("localize!(");
     if !variable_names.is_empty() {
         result.push_str("\n    ");
     }
     result.push('"');
-    result.push_str(message_id.as_ref());
+    result.push_str(fluent_message_id.as_ref());
+    result.push_str("\" = \"");
+    result.push_str(fluent_message_value.as_ref());
     result.push('"');
     if !variable_names.is_empty() {
         result.push_str(",\n");
