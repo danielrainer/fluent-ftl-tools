@@ -12,6 +12,8 @@ use std::{
     path::{Path, PathBuf},
 };
 
+const DEFAULT_LANGUAGE: &str = "en";
+
 fn print_help() {
     eprintln!(
         "\n\
@@ -95,7 +97,7 @@ fn main() -> Result<()> {
     let (gettext_msgid, _) = get_message_at_line_index(line_number - 1, &id_source_file_content)
         .with_context(|| format!("Failed to get message from PO file {id_source_file_path:?}"))?;
 
-    let lang_to_msgstr = build_lang_to_msgstr_map(&gettext_msgid, po_dir, id_source_file_path)
+    let lang_to_msgstr = build_lang_to_msgstr_map(&gettext_msgid, po_dir)
         .context("Failed to obtain msgstrs from PO files")?;
     let lang_to_fluent_entry =
         build_lang_to_fluent_entry_map(lang_to_msgstr, fluent_message_id, variable_names)
@@ -120,10 +122,9 @@ fn main() -> Result<()> {
 // Maps from resource language to the corresponding msgstr.
 // Uses the specified msgid for the language of the file specified via the first CLI argument if
 // that language does not have a msgstr.
-fn build_lang_to_msgstr_map<P: AsRef<Path>, Q: AsRef<Path>>(
+fn build_lang_to_msgstr_map<P: AsRef<Path>>(
     msgid: &str,
     po_dir: P,
-    id_source_file_path: Q,
 ) -> Result<HashMap<String, Option<String>>> {
     let po_file_paths =
         get_file_paths_with_extension_from_directory(&po_dir, "po").with_context(|| {
@@ -157,21 +158,9 @@ fn build_lang_to_msgstr_map<P: AsRef<Path>, Q: AsRef<Path>>(
             .to_string();
         map.insert(language, msgstr);
     }
-    let id_source_file_path = id_source_file_path.as_ref();
-    let id_source_language = id_source_file_path
-        .file_stem()
-        .unwrap()
-        .to_str()
-        .ok_or_else(|| anyhow!("File name {id_source_file_path:?} must valid UTF-8."))?
-        .to_string();
-    let use_msgid = match map.get(&id_source_language) {
-        Some(Some(_)) => false,
-        Some(None) => true,
-        None => true,
-    };
-    if use_msgid {
-        map.insert(id_source_language, Some(msgid.to_string()));
-    }
+    // This could be auto-generated, but adding it here prevents having to call the tool for
+    // updating en.ftl.
+    map.insert(DEFAULT_LANGUAGE.to_owned(), Some(msgid.to_string()));
     Ok(map)
 }
 
