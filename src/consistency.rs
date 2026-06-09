@@ -16,7 +16,12 @@ fn check_for_outdated_annotation<'a, S: AsRef<str> + 'a>(resource: &'a Resource<
     let messages = resource.messages();
     for (id, message) in messages {
         if message.has_annotation(Annotation::Outdated)? {
-            bail!("Outdated message: {id}");
+            bail!(
+                "Outdated message: {id}\n\
+                Translations are marked as outdated when the original message definition changed.\n\
+                These annotations must be resolved to avoid having incorrect translations.\n\
+                See the `cargo xtask fluent resolve-outdated` tool."
+            );
         }
     }
     Ok(())
