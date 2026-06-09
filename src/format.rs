@@ -25,7 +25,7 @@ pub fn format_path<P: AsRef<Path>>(path: P, mode: FormattingMode) -> Result<()> 
             }
         }
         FormattingMode::Rewrite => {
-            let resource = parse_str_as_syntax_resource(&file_content)
+            let resource = parse_str_as_syntax_resource(file_content)
                 .with_context(|| format!("Failed to parse {path:?}"))?;
             let formatted_resource = format_resource(resource).with_context(|| {
                 format!("File {path:?} does not conform to the expected subset of FTL syntax")
@@ -37,7 +37,7 @@ pub fn format_path<P: AsRef<Path>>(path: P, mode: FormattingMode) -> Result<()> 
     }
 }
 
-pub fn format_text(text: &str) -> Result<String> {
+pub fn format_text(text: impl Into<String>) -> Result<String> {
     let resource = parse_str_as_syntax_resource(text)?;
     let formatted_resource = format_resource(resource)?;
     Ok(serialize_resource(&formatted_resource))

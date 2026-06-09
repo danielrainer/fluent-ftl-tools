@@ -269,7 +269,7 @@ fn build_lang_to_fluent_entry_map<S: AsRef<str>>(
                     replacement_variables,
                 )
                 .with_context(|| format!("Failed to convert PO string \"{po_string}\""))?;
-                let new_resource = parse_str_as_syntax_resource(&fluent_string)
+                let new_resource = parse_str_as_syntax_resource(fluent_string)
                     .expect("Building Fluent entry went wrong.");
                 let entry = new_resource
                     .body
@@ -299,7 +299,7 @@ fn build_updated_fluent_resources<P: AsRef<Path>>(
         };
         let formatted_resource = match std::fs::read_to_string(&ftl_file_path) {
             Ok(content) => {
-                let mut resource = parse_str_as_syntax_resource(&content).with_context(|| {
+                let mut resource = parse_str_as_syntax_resource(content).with_context(|| {
                     format!("Failed to parse content of {ftl_file_path:?} as Fluent resource")
                 })?;
                 let existing_message_ids = resource.message_ids();

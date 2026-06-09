@@ -28,36 +28,32 @@ pub mod missing;
 pub mod rename;
 pub mod variables;
 
-pub fn parse_str_as_syntax_resource(input: &str) -> Result<Resource<String>> {
-    let parser = Parser::new(input.to_owned());
+pub fn parse_str_as_syntax_resource(input: impl Into<String>) -> Result<Resource<String>> {
+    let input_string = input.into();
+    let parser = Parser::new(input_string.clone());
     parser
         .parse()
-        .map_err(|(_, errors)| anyhow!(display_parse_errors(&errors, input)))
+        .map_err(|(_, errors)| anyhow!(display_parse_errors(&errors, &input_string)))
 }
 
 pub fn parse_as_syntax_resource<P: AsRef<Path>>(path: P) -> Result<Resource<String>> {
     let file_content = std::fs::read_to_string(&path)
         .with_context(|| format!("Failed to read from {:?}", path.as_ref()))?;
-    let parser = Parser::new(file_content.clone());
-    parser.parse().map_err(|(_, errors)| {
-        anyhow!(
-            "Error parsing data obtained from {:?}:\n{}",
-            path.as_ref(),
-            display_parse_errors(&errors, &file_content)
-        )
-    })
+    parse_str_as_syntax_resource(file_content)
+        .with_context(|| format!("Error parsing {:?}", path.as_ref()))
+}
+
+pub fn parse_str_as_fluent_resource(input: impl Into<String>) -> Result<FluentResource> {
+    let input_string = input.into();
+    FluentResource::try_new(input_string.clone())
+        .map_err(|(_, errors)| anyhow!(display_parse_errors(&errors, &input_string)))
 }
 
 pub fn parse_as_fluent_resource<P: AsRef<Path>>(path: P) -> Result<FluentResource> {
     let file_content = std::fs::read_to_string(&path)
         .with_context(|| format!("Failed to read from {:?}", path.as_ref()))?;
-    FluentResource::try_new(file_content.clone()).map_err(|(_, errors)| {
-        anyhow!(
-            "Error parsing data obtained from {:?}:\n{}",
-            path.as_ref(),
-            display_parse_errors(&errors, &file_content)
-        )
-    })
+    parse_str_as_fluent_resource(file_content)
+        .with_context(|| format!("Error parsing {:?}", path.as_ref()))
 }
 
 pub fn make_bundle(resource: &FluentResource) -> Result<FluentBundle<&FluentResource>> {
