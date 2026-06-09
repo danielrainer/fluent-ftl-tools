@@ -189,10 +189,7 @@ pub fn format_resource(resource: Resource<String>) -> Result<Resource<String>> {
     })
 }
 
-pub fn is_formatted(ftl_data: &str) -> Result<bool> {
-    let resource = Parser::new(ftl_data.to_string())
-        .parse()
-        .map_err(|(_, errors)| anyhow!(display_parse_errors(&errors, ftl_data)))?;
+pub fn is_formatted(ftl_data: &str, resource: Resource<String>) -> Result<bool> {
     let formatted_resource = format_resource(resource)?;
     let formatted_resource_text = serialize_resource(&formatted_resource);
     Ok(formatted_resource_text == ftl_data)

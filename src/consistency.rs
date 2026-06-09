@@ -27,7 +27,7 @@ fn check_internal_consistency(resource_str: &str, resource: &Resource<String>) -
     // Ideally, we would not parse again here, but construct the `FluentResource` directly from the
     // resource, but the `fluent-rs` API does not allow for that.
     let _ = make_bundle(&parse_str_as_fluent_resource(resource_str)?)?;
-    if !is_formatted(resource_str)? {
+    if !is_formatted(resource_str, resource.to_owned())? {
         bail!("File does not conform to expected formatting.");
     }
     check_for_outdated_annotation(resource)
