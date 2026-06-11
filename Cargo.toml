@@ -17,27 +17,27 @@ license.workspace = true
 path = "src/lib.rs"
 
 [[bin]]
-name = "check-consistency"
+name = "ftl-check-consistency"
 path = "src/bin/check_consistency.rs"
 
 [[bin]]
-name = "format"
+name = "ftl-format"
 path = "src/bin/format.rs"
 
 [[bin]]
-name = "format-stdin"
+name = "ftl-format-stdin"
 path = "src/bin/format_stdin.rs"
 
 [[bin]]
-name = "po-convert"
+name = "ftl-po-convert"
 path = "src/bin/po_convert.rs"
 
 [[bin]]
-name = "rename"
+name = "ftl-rename"
 path = "src/bin/rename.rs"
 
 [[bin]]
-name = "show-missing"
+name = "ftl-show-missing"
 path = "src/bin/show_missing.rs"
 
 [workspace.dependencies]
