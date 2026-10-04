@@ -9,7 +9,7 @@ use anyhow::{Context, Result, anyhow, bail};
 use fluent::{FluentBundle, FluentError, FluentResource};
 use fluent_syntax::{
     ast::{Comment, Entry, Message, Resource, Term},
-    parser::{Parser, ParserError},
+    parser::ParserError,
     serializer::{Options, Serializer},
 };
 use std::{
@@ -30,9 +30,7 @@ pub mod variables;
 
 pub fn parse_str_as_syntax_resource(input: impl Into<String>) -> Result<Resource<String>> {
     let input_string = input.into();
-    let parser = Parser::new(input_string.clone());
-    parser
-        .parse()
+    fluent_syntax::parser::parse(input_string.clone())
         .map_err(|(_, errors)| anyhow!(display_parse_errors(&errors, &input_string)))
 }
 
