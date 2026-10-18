@@ -45,7 +45,7 @@ anyhow = "1.0.102"
 fluent = { git = "https://github.com/projectfluent/fluent-rs", rev = "0f87afbbc3fe7d20c61a3fc75cb5d0e123aefdda" }
 fluent-syntax = { git = "https://github.com/projectfluent/fluent-rs", rev = "0f87afbbc3fe7d20c61a3fc75cb5d0e123aefdda" }
 gettext-po-file-parser = { path = "crates/gettext-po-file-parser" }
-nix = { version = "0.30", features = ["fs"] }
+nix = { version = "0.31", features = ["fs"] }
 unic-langid = "0.9.6"
 
 [dependencies]
